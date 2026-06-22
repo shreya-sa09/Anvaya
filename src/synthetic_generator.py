@@ -17,13 +17,15 @@ def generate_daily_balance(customer_list):
             cid = int(row['SK_ID_CURR'])
             income = row['AMT_INCOME_TOTAL'] / 12
             annuity = row['AMT_ANNUITY'] / 12
-            target = int(row.get('TARGET', 0))
             rng = np.random.default_rng(seed=cid % 100000)
 
-            if target == 1:
-                drift_rate = rng.normal(loc=-0.003, scale=0.006)
+            annuity_ratio = annuity / (income + 1)
+            if annuity_ratio > 0.4:
+                drift_rate = rng.normal(loc=-0.002, scale=0.007)
+            elif annuity_ratio > 0.25:
+                drift_rate = rng.normal(loc=0.0, scale=0.006)
             else:
-                drift_rate = rng.normal(loc=0.001, scale=0.006)
+                drift_rate = rng.normal(loc=0.001, scale=0.005)
 
             daily_drift = drift_rate * income
             starting_balance = float(rng.normal(loc=income * 1.5, scale=income * 0.5))
@@ -55,23 +57,21 @@ def generate_income_arrival(customer_list):
         cid = int(row['SK_ID_CURR'])
         income = row['AMT_INCOME_TOTAL'] / 12
         income_type = int(row['NAME_INCOME_TYPE']) % 5
-        # bias base delay by TARGET but add substantial overlap noise
-        target = int(row.get('TARGET', 0))
         rng = np.random.default_rng(seed=(cid % 100000) + 1)
 
-        if target == 1:
-            lam = 2.5
-        else:
-            lam = 0.8
+        delay_profile = {
+            0: {'lam': 0.5, 'noise': 0.8},
+            1: {'lam': 0.5, 'noise': 0.8},
+            2: {'lam': 1.5, 'noise': 1.5},
+            3: {'lam': 3.0, 'noise': 2.0},
+            4: {'lam': 5.0, 'noise': 3.0},
+        }
+        profile = delay_profile.get(income_type % 5, {'lam': 2.0, 'noise': 1.5})
 
         for month in range(1, 7):
-            base_delay = rng.poisson(lam=lam)
-            delay = int(max(0, round(base_delay + rng.normal(0, 1.5))))
-
-            if target == 1:
-                amount = income * float(rng.uniform(0.75, 1.05))
-            else:
-                amount = income * float(rng.uniform(0.90, 1.05))
+            base_delay = rng.poisson(lam=profile['lam'])
+            delay = int(max(0, round(base_delay + rng.normal(0, profile['noise']))))
+            amount = income * float(rng.uniform(0.88, 1.05))
 
             rows.append({
                 'customer_id': cid,
@@ -103,21 +103,21 @@ def generate_transactions(customer_list):
         for _, row in customer_list.iterrows():
             cid = int(row['SK_ID_CURR'])
             income = row['AMT_INCOME_TOTAL'] / 12
-            target = int(row.get('TARGET', 0))
+            annuity = row['AMT_ANNUITY'] / 12
+            income_type = int(row['NAME_INCOME_TYPE']) % 5
+            annuity_ratio = annuity / (income + 1)
             rng = np.random.default_rng(seed=(cid % 100000) + 2)
 
-            if target == 1:
-                atm_w = float(rng.uniform(0.12, 0.28))
-                groceries_w = float(rng.uniform(0.10, 0.20))
-                essentials_w = float(rng.uniform(0.16, 0.28))
+            if annuity_ratio > 0.4:
+                atm_w = float(rng.uniform(0.10, 0.20))
+                essentials_w = float(rng.uniform(0.20, 0.30))
             else:
-                atm_w = float(rng.uniform(0.06, 0.18))
-                groceries_w = float(rng.uniform(0.08, 0.18))
-                essentials_w = float(rng.uniform(0.12, 0.22))
+                atm_w = float(rng.uniform(0.06, 0.14))
+                essentials_w = float(rng.uniform(0.14, 0.22))
 
             base_weights = [0.18, 0.22, 0.05, 0.16, 0.10, 0.14, 0.15]
             weights = base_weights.copy()
-            weights[0] = groceries_w
+            weights[0] = float(rng.uniform(0.08, 0.18))
             weights[1] = essentials_w
             weights[4] = atm_w
             total = sum(weights)
