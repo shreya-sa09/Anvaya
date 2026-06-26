@@ -4,8 +4,10 @@ import numpy as np
 import joblib
 import shap
 
+
 PROCESSED_PATH = "../data/processed/"
 MODELS_PATH = "../models/"
+
 
 FEATURE_LABELS = {
     'F2_savings_drawdown_WOE':       'Savings Depletion',
@@ -16,6 +18,7 @@ FEATURE_LABELS = {
     'F10_cohort_stress_WOE':         'Peer Group Under Stress',
     'F11_overdraft_freq_WOE':        'Frequent Overdrafts',
 }
+
 
 EXPLANATION_TEMPLATES = {
     'F2_savings_drawdown_WOE':
@@ -41,6 +44,7 @@ EXPLANATION_TEMPLATES = {
         'indicating the financial buffer is fully exhausted.',
 }
 
+
 INTERVENTION_MAP = {
     'F2_savings_drawdown_WOE':       'Emergency credit line or temporary overdraft facility',
     'F3_income_irregularity_WOE':    'Shift EMI due date to align with actual income arrival pattern',
@@ -50,6 +54,8 @@ INTERVENTION_MAP = {
     'F10_cohort_stress_WOE':         'Monitor closely — external pressure, check employer stress signals',
     'F11_overdraft_freq_WOE':        '30-day payment holiday and emergency credit line',
 }
+
+
 
 
 def load_dataframe(filename, required_columns=None):
@@ -67,11 +73,15 @@ def load_dataframe(filename, required_columns=None):
     return df
 
 
+
+
 def load_model():
     path = os.path.join(MODELS_PATH, 'lgb_model.pkl')
     if not os.path.exists(path):
         raise FileNotFoundError('lgb_model.pkl not found in models/. Run model_trainer.py first.')
     return joblib.load(path)
+
+
 
 
 def build_explanation_row(customer_id, band, pd_score, feature_names, shap_row):
@@ -89,6 +99,7 @@ def build_explanation_row(customer_id, band, pd_score, feature_names, shap_row):
             'contribution_pct': contribution * 100,
         })
 
+
     recommended = INTERVENTION_MAP.get(top_drivers[0]['feature'], 'Review account for tailored intervention')
     case_summary = (
         f"This customer is flagged as {band} risk with a "
@@ -98,6 +109,7 @@ def build_explanation_row(customer_id, band, pd_score, feature_names, shap_row):
         f"Additional signal: {top_drivers[2]['explanation']} "
         f"Recommended action: {recommended}."
     )
+
 
     return {
         'SK_ID_CURR': customer_id,
@@ -120,6 +132,8 @@ def build_explanation_row(customer_id, band, pd_score, feature_names, shap_row):
     }
 
 
+
+
 def run():
     print('=== SHAP Explainer ===')
     features_df = load_dataframe('features_final.csv', ['SK_ID_CURR', 'TARGET'])
@@ -128,8 +142,10 @@ def run():
     selected = load_dataframe('selected_features.csv', ['selected_features'])
     feature_cols = selected['selected_features'].tolist()
 
+
     flagged = preds_df[preds_df['risk_band'].isin(['YELLOW', 'HIGH', 'RED'])].copy()
     print(f"Loaded {len(flagged)} flagged customers from model_predictions.csv")
+
 
     flagged = flagged.merge(features_df[['SK_ID_CURR'] + feature_cols], on='SK_ID_CURR', how='left')
     missing_features = [c for c in feature_cols if c not in flagged.columns]
@@ -138,16 +154,18 @@ def run():
             f'Missing feature columns in merged dataframe: {missing_features}'
         )
 
+
     X_flagged = flagged[feature_cols].fillna(0)
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X_flagged)
     if isinstance(shap_values, list):
         shap_values = shap_values[1]
 
+
     print('Computing SHAP values and building explanations...')
     explanations = []
-    for idx, row in flagged.iterrows():
-        shap_row = shap_values[idx]
+    for i, (idx, row) in enumerate(flagged.iterrows()):
+        shap_row = shap_values[i]
         explanations.append(
             build_explanation_row(
                 int(row['SK_ID_CURR']),
@@ -158,14 +176,17 @@ def run():
             )
         )
 
+
     explanation_df = pd.DataFrame(explanations)
     explanation_df.to_csv(os.path.join(PROCESSED_PATH, 'shap_explanations.csv'), index=False)
     print('Saved shap_explanations.csv')
     print(explanation_df.head(3).to_string(index=False))
 
+
     band_counts = explanation_df['risk_band'].value_counts().reindex(['YELLOW', 'HIGH', 'RED'], fill_value=0)
     print('\nExplanations generated per band:')
     print(band_counts.to_string())
+
 
     for band in ['YELLOW', 'HIGH', 'RED']:
         sample = explanation_df[explanation_df['risk_band'] == band].head(1)
@@ -179,8 +200,14 @@ def run():
             print(f"  Intervention: {row['recommended_intervention']}")
             print(f"  Summary: {row['case_summary']}")
 
+
     print('\nSHAP explainer complete.')
+
+
 
 
 if __name__ == '__main__':
     run()
+
+
+
