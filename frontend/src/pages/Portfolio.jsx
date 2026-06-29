@@ -5,7 +5,7 @@ import {
     CartesianGrid, ResponsiveContainer
 } from 'recharts'
 
-const API = 'http://localhost:8001'
+const API = 'https://anvaya-z3zm.onrender.com'
 
 function PillBand({ band }) {
     const styles = {

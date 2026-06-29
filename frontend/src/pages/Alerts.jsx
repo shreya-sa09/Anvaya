@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-const API = 'http://localhost:8001'
+const API = 'https://anvaya-z3zm.onrender.com'
 
 export default function Alerts({ onViewCustomer, dismissedAlerts, onDismissAlert, readAlerts, onMarkRead }) {
     const [alerts, setAlerts] = useState([])

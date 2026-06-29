@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const API = 'http://localhost:8001'
+const API = 'https://anvaya-z3zm.onrender.com'
 
 export default function LiveScoring({ onViewCustomer }) {
     const [form, setForm] = useState({

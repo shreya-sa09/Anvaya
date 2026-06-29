@@ -12,8 +12,7 @@ import {
     Cell
 } from 'recharts'
 
-const API = 'http://localhost:8001'
-
+const API = 'https://anvaya-z3zm.onrender.com'
 function PillBand({ band }) {
     const styles = {
         RED: { bg: 'rgba(239,68,68,0.15)', color: '#EF4444', label: '● CRITICAL' },
