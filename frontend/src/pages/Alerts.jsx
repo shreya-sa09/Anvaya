@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-const API = 'http://localhost:8000'
+const API = 'http://localhost:8001'
 
 export default function Alerts({ onViewCustomer, dismissedAlerts, onDismissAlert, readAlerts, onMarkRead }) {
     const [alerts, setAlerts] = useState([])
@@ -20,7 +20,7 @@ export default function Alerts({ onViewCustomer, dismissedAlerts, onDismissAlert
         fetch(`${API}/contagion`)
             .then(r => r.json())
             .then(setContagion)
-            .catch(() => {})
+            .catch(() => { })
     }, [])
 
     // Filter out dismissed alerts locally (P12)
@@ -89,7 +89,7 @@ export default function Alerts({ onViewCustomer, dismissedAlerts, onDismissAlert
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button 
+                        <button
                             onClick={() => {
                                 // Simulate filtering alerts to this group or alert notification
                                 alert(`Displaying contagion details for ${contagion.employer_name}`);
@@ -107,7 +107,7 @@ export default function Alerts({ onViewCustomer, dismissedAlerts, onDismissAlert
                         >
                             View Affected
                         </button>
-                        <button 
+                        <button
                             onClick={() => {
                                 alert(`Employer group ${contagion.employer_name} escalated to senior credit committee.`);
                             }}
@@ -327,7 +327,7 @@ export default function Alerts({ onViewCustomer, dismissedAlerts, onDismissAlert
                                 >
                                     View Profile
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => onDismissAlert(alert.SK_ID_CURR)}
                                     style={{
                                         backgroundColor: 'transparent',

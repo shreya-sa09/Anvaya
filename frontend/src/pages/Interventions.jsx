@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-const API = 'http://localhost:8000'
+const API = 'http://localhost:8001'
 
 export default function Interventions({ onViewCustomer, rmDecisions }) {
     const [data, setData] = useState([])

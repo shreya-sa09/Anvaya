@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 
 PROCESSED_PATH = "../data/processed/"
 SYNTHETIC_BALANCE_PATH = "../data/synthetic/synthetic_daily_balance.csv"
@@ -17,7 +18,12 @@ FEATURE_COLS = [
     'F10_cohort_stress',
     'F11_overdraft_freq',
     'F12_cross_loan_consistency',
-    'F13_secondary_income'
+    'F13_secondary_income',
+    'F14_ext_source_2',
+    'F15_ext_source_3',
+    'F16_days_birth',
+    'F17_days_employed',
+    'F18_phone_change'
 ]
 
 BALANCE_METRICS = [
@@ -101,7 +107,7 @@ def compute_population_stats(features_df):
     for col in FEATURE_COLS:
         if col not in features_df.columns:
             continue
-        mean = features_df[col].median()
+        mean = features_df[col].median()  # Using median as robust mean estimator
         std = features_df[col].std()
         stats[col] = {
             'mean': float(mean),
@@ -122,24 +128,43 @@ def normalize_original_features(features_df, pop_stats):
     return df
 
 
-def run_personal_rhythm_engine(features_df):
-    print("Running Personal Rhythm Engine...")
-    print(f"  Input shape: {features_df.shape}")
-
+def run_personal_rhythm_engine_leakage_free(train_df, val_df, holdout_df):
+    print("Running leakage-free Personal Rhythm Engine...")
     balance_df = load_balance_data()
     personal_z = compute_personal_baseline_zscores(balance_df)
 
+    # Compute population statistics on the train split only to prevent leakage
+    pop_stats = compute_population_stats(train_df)
+
+    # Normalize each split using the train statistics
+    train_norm = normalize_original_features(train_df, pop_stats)
+    val_norm = normalize_original_features(val_df, pop_stats)
+    holdout_norm = normalize_original_features(holdout_df, pop_stats)
+
+    # Merge customer-specific Z-scores (no leakage since they are computed customer-by-customer)
+    train_result = train_norm.merge(personal_z, on='SK_ID_CURR', how='left')
+    val_result = val_norm.merge(personal_z, on='SK_ID_CURR', how='left')
+    holdout_result = holdout_norm.merge(personal_z, on='SK_ID_CURR', how='left')
+
+    z_cols = ['mean_balance_Z', 'std_balance_Z', 'mean_daily_change_Z', 'negative_day_rate_Z']
+    for df in [train_result, val_result, holdout_result]:
+        df[z_cols] = df[z_cols].fillna(0.0)
+
+    return train_result, val_result, holdout_result, pop_stats
+
+
+def run_personal_rhythm_engine(features_df):
+    # Backward compatibility wrapper
+    print("WARNING: run_personal_rhythm_engine is deprecated and contains scaling leakage. Use run_personal_rhythm_engine_leakage_free instead.")
+    balance_df = load_balance_data()
+    personal_z = compute_personal_baseline_zscores(balance_df)
     pop_stats = compute_population_stats(features_df)
     base_normalized = normalize_original_features(features_df, pop_stats)
-
     result = base_normalized.merge(personal_z, on='SK_ID_CURR', how='left')
     result[['mean_balance_Z', 'std_balance_Z', 'mean_daily_change_Z', 'negative_day_rate_Z']] = (
         result[['mean_balance_Z', 'std_balance_Z', 'mean_daily_change_Z', 'negative_day_rate_Z']]
         .fillna(0.0)
     )
-
-    print(f"  Personal baseline Z-scores merged: {result.shape}")
-
     return result, pop_stats
 
 
@@ -159,12 +184,17 @@ if __name__ == "__main__":
     features_df = pd.read_csv(PROCESSED_PATH + "features.csv")
     print(f"  Loaded: {features_df.shape}")
 
-    normalized_df, pop_stats = run_personal_rhythm_engine(features_df)
+    # For standalone runs, we split locally to demonstrate leakage-free logic
+    from sklearn.model_selection import train_test_split
+    train_df, val_df = train_test_split(features_df, test_size=0.3, random_state=42, stratify=features_df['TARGET'])
+    val_df, holdout_df = train_test_split(val_df, test_size=0.5, random_state=42, stratify=val_df['TARGET'])
 
-    normalized_df.to_csv(PROCESSED_PATH + "features_normalized.csv", index=False)
-    print(f"\nSaved features_normalized.csv — shape: {normalized_df.shape}")
+    train_res, val_res, holdout_res, pop_stats = run_personal_rhythm_engine_leakage_free(train_df, val_df, holdout_df)
+
+    # Save
+    train_res.to_csv(PROCESSED_PATH + "train_features_normalized.csv", index=False)
+    val_res.to_csv(PROCESSED_PATH + "val_features_normalized.csv", index=False)
+    holdout_res.to_csv(PROCESSED_PATH + "holdout_features_normalized.csv", index=False)
 
     save_population_baseline(pop_stats)
-    print("Saved population_baseline.csv")
-
-    print("\nPersonal Rhythm Engine complete.")
+    print("Saved baseline and normalized files.")

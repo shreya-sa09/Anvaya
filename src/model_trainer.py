@@ -1,9 +1,7 @@
-
 import os
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, confusion_matrix
@@ -37,16 +35,6 @@ LGB_PARAMS = {
 }
 
 
-def load_features():
-    path = os.path.join(PROCESSED_PATH, 'features_final.csv')
-    if not os.path.exists(path):
-        raise FileNotFoundError(
-            f'features_final.csv not found in {PROCESSED_PATH}. Run feature_selector.py first.'
-        )
-    df = pd.read_csv(path)
-    return df
-
-
 def load_selected_features():
     path = os.path.join(PROCESSED_PATH, 'selected_features.csv')
     if not os.path.exists(path):
@@ -59,36 +47,28 @@ def load_selected_features():
     return sel['selected_features'].tolist()
 
 
-def stratified_splits(df, feature_cols):
-    print('Splitting data into train/validation/holdout...')
-
-    if 'TARGET' not in df.columns:
-        raise KeyError('TARGET column missing from features_final.csv')
-    if 'SK_ID_CURR' not in df.columns:
-        raise KeyError('SK_ID_CURR column missing from features_final.csv')
-
-    X = df[feature_cols].fillna(0)
-    y = df['TARGET']
-
-    X_temp, X_hold, y_temp, y_hold, id_temp, id_hold = train_test_split(
-        X, y, df['SK_ID_CURR'],
-        test_size=0.15,
-        random_state=42,
-        stratify=y,
-    )
-
-    val_ratio = 0.15 / 0.85
-    X_train, X_val, y_train, y_val, id_train, id_val = train_test_split(
-        X_temp, y_temp, id_temp,
-        test_size=val_ratio,
-        random_state=42,
-        stratify=y_temp,
-    )
-
-    print(f"  Train size: {X_train.shape[0]}  default rate: {y_train.mean():.4f}")
-    print(f"  Val size:   {X_val.shape[0]}  default rate: {y_val.mean():.4f}")
+def load_pre_split_data(feature_cols):
+    print("Loading pre-split data from processed directory...")
+    train_df = pd.read_csv(os.path.join(PROCESSED_PATH, 'train_features_final.csv'))
+    val_df = pd.read_csv(os.path.join(PROCESSED_PATH, 'val_features_final.csv'))
+    holdout_df = pd.read_csv(os.path.join(PROCESSED_PATH, 'holdout_features_final.csv'))
+    
+    X_train = train_df[feature_cols].fillna(0)
+    y_train = train_df['TARGET']
+    id_train = train_df['SK_ID_CURR']
+    
+    X_val = val_df[feature_cols].fillna(0)
+    y_val = val_df['TARGET']
+    id_val = val_df['SK_ID_CURR']
+    
+    X_hold = holdout_df[feature_cols].fillna(0)
+    y_hold = holdout_df['TARGET']
+    id_hold = holdout_df['SK_ID_CURR']
+    
+    print(f"  Train size:   {X_train.shape[0]}  default rate: {y_train.mean():.4f}")
+    print(f"  Val size:     {X_val.shape[0]}  default rate: {y_val.mean():.4f}")
     print(f"  Holdout size: {X_hold.shape[0]}  default rate: {y_hold.mean():.4f}")
-
+    
     return (
         X_train, X_val, X_hold,
         y_train, y_val, y_hold,
@@ -201,8 +181,6 @@ def save_predictions(df, filename):
 
 def run():
     print('=== Model Trainer ===')
-    df = load_features()
-    print(f"Loaded features_final.csv — shape: {df.shape}")
     feature_cols = load_selected_features()
     print(f"Loaded selected_features.csv ({len(feature_cols)} features)")
 
@@ -211,7 +189,7 @@ def run():
     print(f"  XGBoost features ({len(xgb_features)}): {xgb_features}")
     print(f"  LightGBM features ({len(lgb_features)}): {lgb_features}")
 
-    X_train, X_val, X_hold, y_train, y_val, y_hold, id_train, id_val, id_hold = stratified_splits(df, feature_cols)
+    X_train, X_val, X_hold, y_train, y_val, y_hold, id_train, id_val, id_hold = load_pre_split_data(feature_cols)
 
     xgb_model = train_xgb(X_train, y_train, xgb_features)
     lgb_model = train_lgb(X_train, y_train, lgb_features)
@@ -234,17 +212,30 @@ def run():
     print('\nRisk band distribution (holdout):')
     print(distribution.to_string())
 
+    # Score train set for outputs
     train_results = pd.DataFrame({
         'SK_ID_CURR': id_train.values,
         'TARGET': y_train.values,
         'xgb_score': xgb_model.predict_proba(X_train[xgb_features])[:, 1],
         'lgb_score': lgb_model.predict_proba(X_train[lgb_features])[:, 1],
     })
-    train_results['final_pd'] = pd.Series(train_results['xgb_score']).where(
-        (train_results['xgb_score'] < 0.15) | (train_results['xgb_score'] > 0.25),
-        train_results['lgb_score']
-    )
+    xgb_train = train_results['xgb_score'].values
+    lgb_train = train_results['lgb_score'].values
+    meta_train_X = np.vstack([xgb_train, lgb_train]).T
+    train_results['final_pd'] = calibrated_model.predict_proba(meta_train_X)[:, 1]
     train_results['risk_band'] = train_results['final_pd'].apply(risk_band)
+
+    # Score val set for outputs
+    xgb_val_full = xgb_model.predict_proba(X_val[xgb_features])[:, 1]
+    lgb_val_full = lgb_model.predict_proba(X_val[lgb_features])[:, 1]
+    val_results = pd.DataFrame({
+        'SK_ID_CURR': id_val.values,
+        'TARGET': y_val.values,
+        'xgb_score': xgb_val_full,
+        'lgb_score': lgb_val_full,
+        'final_pd': calibrated_model.predict_proba(np.vstack([xgb_val_full, lgb_val_full]).T)[:, 1],
+    })
+    val_results['risk_band'] = val_results['final_pd'].apply(risk_band)
 
     holdout_results = pd.DataFrame({
         'SK_ID_CURR': id_hold.values,
@@ -257,6 +248,11 @@ def run():
 
     save_predictions(train_results, 'train_predictions.csv')
     save_predictions(holdout_results, 'model_predictions.csv')
+    
+    # Save combined predictions for API lookup
+    combined_results = pd.concat([train_results, val_results, holdout_results], axis=0).drop_duplicates(subset='SK_ID_CURR')
+    save_predictions(combined_results, 'combined_predictions.csv')
+
     save_models(xgb_model, lgb_model, meta_model, calibrated_model)
 
     print('\nModel trainer complete.')
@@ -270,4 +266,3 @@ def run():
 
 if __name__ == '__main__':
     run()
-

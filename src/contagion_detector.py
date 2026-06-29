@@ -3,9 +3,11 @@ import pandas as pd
 from kafka import KafkaProducer
 from datetime import datetime
 
+
 KAFKA_BROKER = 'localhost:9092'
 ALERT_TOPIC = 'anvaya-alerts'
 CONTAGION_THRESHOLD = 5
+
 
 ORG_TYPE_MAP = {
     0: 'Business Entity Type 3',
@@ -68,20 +70,26 @@ ORG_TYPE_MAP = {
     57: 'Industry Type 11',
 }
 
+
 def load_data():
-    predictions = pd.read_csv('../data/processed/model_predictions.csv')
+    # Use combined_predictions so all 49,000 customers are covered, not just holdout
+    predictions = pd.read_csv('../data/processed/combined_predictions.csv')
     master = pd.read_csv('../data/processed/master.csv')
+
 
     keep = ['SK_ID_CURR']
     if 'ORGANIZATION_TYPE' in master.columns:
         keep.append('ORGANIZATION_TYPE')
 
+
     merged = predictions.merge(
         master[keep], on='SK_ID_CURR', how='left'
     )
 
+
     if 'ORGANIZATION_TYPE' not in merged.columns:
         merged['ORGANIZATION_TYPE'] = 'Unknown'
+
 
     # Map encoded integers to readable names
     merged['ORGANIZATION_TYPE'] = (
@@ -90,10 +98,13 @@ def load_data():
         .fillna('Unknown Sector')
     )
 
+
     return merged
+
 
 def detect_contagion(df):
     stressed = df[df['risk_band'].isin(['YELLOW', 'RED'])].copy()
+
 
     alerts = []
     for employer, group in stressed.groupby('ORGANIZATION_TYPE'):
@@ -127,28 +138,35 @@ def detect_contagion(df):
             }
             alerts.append(alert)
 
+
     alerts.sort(key=lambda x: x['stressed_count'], reverse=True)
     return alerts
+
 
 def run_contagion_detector():
     print("="*55)
     print("STRESS CONTAGION DETECTOR")
     print("="*55)
 
+
     df = load_data()
     total = len(df)
     stressed_total = len(df[df['risk_band'].isin(['YELLOW', 'RED'])])
+
 
     print(f"Total customers    : {total}")
     print(f"Stressed customers : {stressed_total}")
     print(f"Contagion threshold: {CONTAGION_THRESHOLD} per employer")
     print()
 
+
     alerts = detect_contagion(df)
+
 
     if not alerts:
         print("No contagion detected")
         return
+
 
     try:
         producer = KafkaProducer(
@@ -160,8 +178,10 @@ def run_contagion_detector():
         kafka_available = False
         print("Kafka not running — printing alerts only")
 
+
     print(f"CONTAGION ALERTS FIRED: {len(alerts)}")
     print()
+
 
     for i, alert in enumerate(alerts[:5], 1):
         print(f"Alert {i}:")
@@ -174,15 +194,19 @@ def run_contagion_detector():
         print(f"  Action         : {alert['recommended_action']}")
         print()
 
+
         if kafka_available:
             producer.send(ALERT_TOPIC, value=alert)
+
 
     if kafka_available:
         producer.flush()
         producer.close()
         print(f"Alerts sent to Kafka topic: {ALERT_TOPIC}")
 
+
     print("="*55)
+
 
 if __name__ == "__main__":
     run_contagion_detector()

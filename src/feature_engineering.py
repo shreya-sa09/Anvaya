@@ -185,12 +185,22 @@ def compute_f13(income):
     return agg[['customer_id', 'F13_secondary_income']]
 
 
+def compute_f14_to_f18(master):
+    master['F14_ext_source_2'] = master['EXT_SOURCE_2']
+    master['F15_ext_source_3'] = master['EXT_SOURCE_3']
+    master['F16_days_birth'] = master['DAYS_BIRTH']
+    master['F17_days_employed'] = master['DAYS_EMPLOYED']
+    master['F18_phone_change'] = master['DAYS_LAST_PHONE_CHANGE']
+    return master
+
+
 def build_features(master, balance, income, txn):
-    print("\nBuilding 13 features...")
+    print("\nBuilding 13 features + 5 demographics...")
 
     master = compute_f1(master);           print("  F1 done — EMI to Income Ratio")
     master = compute_f2(master, balance);  print("  F2 done — Savings Drawdown")
     master = compute_f12(master);          print("  F12 done — Cross Loan Consistency")
+    master = compute_f14_to_f18(master);   print("  F14-F18 done — Demographics & Bureau")
 
     f3  = compute_f3(income);   print("  F3 done — Income Irregularity")
     f4  = compute_f4(txn);      print("  F4 done — Spend Shift")
@@ -210,20 +220,25 @@ def build_features(master, balance, income, txn):
 
     # Fill any remaining nulls with median
     f_cols = [
-    'F1_emi_to_income',
-    'F2_savings_drawdown',
-    'F3_income_irregularity',
-    'F4_spend_shift',
-    'F5_autodebit_failures',
-    'F6_lending_app_count',
-    'F7_cash_hoarding',
-    'F8_stress_velocity',
-    'F9_payment_timing_entropy',
-    'F10_cohort_stress',
-    'F11_overdraft_freq',
-    'F12_cross_loan_consistency',
-    'F13_secondary_income'
-]
+        'F1_emi_to_income',
+        'F2_savings_drawdown',
+        'F3_income_irregularity',
+        'F4_spend_shift',
+        'F5_autodebit_failures',
+        'F6_lending_app_count',
+        'F7_cash_hoarding',
+        'F8_stress_velocity',
+        'F9_payment_timing_entropy',
+        'F10_cohort_stress',
+        'F11_overdraft_freq',
+        'F12_cross_loan_consistency',
+        'F13_secondary_income',
+        'F14_ext_source_2',
+        'F15_ext_source_3',
+        'F16_days_birth',
+        'F17_days_employed',
+        'F18_phone_change'
+    ]
     for col in f_cols:
         master[col] = master[col].fillna(master[col].median())
 

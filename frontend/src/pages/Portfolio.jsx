@@ -5,7 +5,7 @@ import {
     CartesianGrid, ResponsiveContainer
 } from 'recharts'
 
-const API = 'http://localhost:8000'
+const API = 'http://localhost:8001'
 
 function PillBand({ band }) {
     const styles = {
@@ -191,22 +191,19 @@ export default function Portfolio({ onViewCustomer }) {
                         fontSize: '15px',
                         fontWeight: 600,
                         color: '#FFFFFF',
-                        marginBottom: '16px'
+                        marginBottom: '12px'
                     }}>
                         Portfolio Split
                     </div>
-                    <ResponsiveContainer width="100%" height={220}>
+                    <ResponsiveContainer width="100%" height={200}>
                         <PieChart>
                             <Pie
                                 data={pieData}
                                 cx="50%"
                                 cy="50%"
-                                innerRadius={60}
-                                outerRadius={90}
+                                innerRadius={55}
+                                outerRadius={85}
                                 dataKey="value"
-                                label={({ name, percent }) =>
-                                    `${name} ${(percent * 100).toFixed(0)}%`
-                                }
                                 labelLine={false}
                             >
                                 {pieData.map((entry, i) => (
@@ -217,11 +214,48 @@ export default function Portfolio({ onViewCustomer }) {
                                 contentStyle={{
                                     backgroundColor: '#161E2E',
                                     border: '1px solid #1F2937',
-                                    color: '#FFFFFF'
+                                    color: '#FFFFFF',
+                                    borderRadius: '8px',
+                                    fontSize: '13px'
                                 }}
+                                formatter={(value, name) => [
+                                    `${value.toLocaleString()} customers`,
+                                    name
+                                ]}
                             />
                         </PieChart>
                     </ResponsiveContainer>
+                    {/* Clean legend below the chart */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '8px',
+                        marginTop: '12px'
+                    }}>
+                        {pieData.map((entry) => (
+                            <div key={entry.name} style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}>
+                                <div style={{
+                                    width: '10px',
+                                    height: '10px',
+                                    borderRadius: '50%',
+                                    backgroundColor: entry.color,
+                                    flexShrink: 0
+                                }} />
+                                <span style={{ fontSize: '12px', color: '#94A3B8' }}>
+                                    {entry.name}
+                                </span>
+                                <span style={{ fontSize: '12px', color: '#FFFFFF', fontWeight: 600, marginLeft: 'auto' }}>
+                                    {metrics && metrics.total > 0
+                                        ? `${((entry.value / metrics.total) * 100).toFixed(1)}%`
+                                        : '0%'}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
                 {/* Line Chart */}

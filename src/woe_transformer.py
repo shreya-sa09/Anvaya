@@ -1,7 +1,10 @@
 import pandas as pd
 import numpy as np
+import os
+import json
 
 PROCESSED_PATH = "../data/processed/"
+MODELS_PATH = "../models/"
 
 Z_COLS = [
     'F1_emi_to_income_Z',
@@ -16,7 +19,16 @@ Z_COLS = [
     'F10_cohort_stress_Z',
     'F11_overdraft_freq_Z',
     'F12_cross_loan_consistency_Z',
-    'F13_secondary_income_Z'
+    'F13_secondary_income_Z',
+    'F14_ext_source_2_Z',
+    'F15_ext_source_3_Z',
+    'F16_days_birth_Z',
+    'F17_days_employed_Z',
+    'F18_phone_change_Z',
+    'mean_balance_Z',
+    'std_balance_Z',
+    'mean_daily_change_Z',
+    'negative_day_rate_Z'
 ]
 
 
@@ -24,7 +36,7 @@ def compute_woe_iv(df, feature, target, bins=10):
     """
     Bins a feature into quantile buckets, then computes
     WOE and IV for each bin.
-    Returns: bin-level stats dataframe, scalar IV value
+    Returns: mapping dictionary (edges, woes), scalar IV value
     """
     temp = df[[feature, target]].copy().dropna()
 
@@ -32,13 +44,16 @@ def compute_woe_iv(df, feature, target, bins=10):
     try:
         temp['bin'] = pd.qcut(temp[feature], q=bins, duplicates='drop')
     except Exception:
-        temp['bin'] = pd.cut(temp[feature], bins=5, duplicates='drop')
+        try:
+            temp['bin'] = pd.cut(temp[feature], bins=5, duplicates='drop')
+        except Exception:
+            return None, 0.0
 
     total_events     = temp[target].sum()
     total_nonevents  = (temp[target] == 0).sum()
 
     if total_events == 0 or total_nonevents == 0:
-        return pd.DataFrame(), 0.0
+        return None, 0.0
 
     grouped = temp.groupby('bin', observed=True)[target].agg(
         events=lambda x: x.sum(),
@@ -56,59 +71,63 @@ def compute_woe_iv(df, feature, target, bins=10):
     grouped['iv']  = (grouped['dist_events'] - grouped['dist_nonevents']) * grouped['woe']
 
     iv = grouped['iv'].sum()
-    grouped['feature'] = feature
+    
+    # Extract sorted boundaries
+    grouped['left'] = grouped['bin'].apply(lambda x: float(x.left))
+    grouped = grouped.sort_values('left')
+    
+    # We construct boundaries. To cover all values from -inf to inf:
+    edges = [-999999999.0]
+    for idx, row in grouped.iterrows():
+        edges.append(float(row['bin'].right))
+    edges[-1] = 999999999.0
+    
+    woes = [float(w) for w in grouped['woe'].tolist()]
+    
+    mapping = {
+        'edges': edges,
+        'woes': woes
+    }
 
-    return grouped, round(iv, 4)
+    return mapping, round(iv, 4)
 
 
-def apply_woe_transform(df, feature, bin_stats):
+def apply_woe_mapping(df, feature, mapping):
     """
     Maps each value in the feature column to its WOE value
-    using the bin boundaries learned during compute_woe_iv.
+    using the pre-computed bin boundaries.
     """
     woe_col = feature.replace('_Z', '_WOE')
-    temp = df[[feature]].copy()
+    if mapping is None:
+        df[woe_col] = 0.0
+        return df
 
-    # Reconstruct bin intervals from the groupby output
-    bin_stats_sorted = bin_stats.sort_values('bin')
-    bins_list = bin_stats_sorted['bin'].tolist()
-    woe_list  = bin_stats_sorted['woe'].tolist()
+    edges = mapping['edges']
+    woes = mapping['woes']
 
-    def lookup_woe(val):
-        for interval, woe in zip(bins_list, woe_list):
-            try:
-                if val in interval:
-                    return woe
-            except TypeError:
-                pass
-        # Fallback: nearest bin
-        return woe_list[0]
-
-    df[woe_col] = df[feature].apply(lookup_woe)
+    # Use pd.cut to assign categories (indices of woes)
+    binned = pd.cut(df[feature], bins=edges, labels=False, include_lowest=True)
+    
+    # Fill nan with default woe (e.g. 0.0)
+    df[woe_col] = binned.map(lambda idx: woes[int(idx)] if not pd.isna(idx) else 0.0)
     return df
 
 
-def run_woe_transformation(df, target_col='TARGET'):
-    print("Running WOE Transformation...")
-    print(f"  Input shape: {df.shape}")
-
+def train_woe_mappings(train_df, target_col='TARGET'):
+    print("Training WoE Mappings on train split...")
+    mappings = {}
     iv_summary = []
-    all_bin_stats = {}
 
     for col in Z_COLS:
-        if col not in df.columns:
-            print(f"  Skipping {col} — not in dataframe")
+        if col not in train_df.columns:
             continue
 
-        bin_stats, iv = compute_woe_iv(df, col, target_col)
-
-        if bin_stats.empty:
+        mapping, iv = compute_woe_iv(train_df, col, target_col)
+        if mapping is None:
             print(f"  {col}: skipped (no variance)")
             continue
 
-        all_bin_stats[col] = bin_stats
-        df = apply_woe_transform(df, col, bin_stats)
-
+        mappings[col] = mapping
         strength = (
             "STRONG"   if iv >= 0.3  else
             "MEDIUM"   if iv >= 0.1  else
@@ -119,32 +138,44 @@ def run_woe_transformation(df, target_col='TARGET'):
         print(f"  {col}: IV={iv:.4f}  [{strength}]")
 
     iv_df = pd.DataFrame(iv_summary).sort_values('iv', ascending=False)
+    return mappings, iv_df
 
-    print(f"\n  WOE columns added: {len(iv_summary)}")
-    print(f"\n  Features to KEEP (IV >= 0.02):")
-    keep = iv_df[iv_df['iv'] >= 0.02]
-    print(keep.to_string(index=False))
 
-    print(f"\n  Features to DROP (IV < 0.02):")
-    drop = iv_df[iv_df['iv'] < 0.02]
-    print(drop.to_string(index=False))
+def save_woe_mappings(mappings, filepath):
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, 'w') as f:
+        json.dump(mappings, f, indent=2)
+    print(f"Saved WoE mappings to {filepath}")
 
-    return df, iv_df, all_bin_stats
+
+def load_woe_mappings(filepath):
+    with open(filepath, 'r') as f:
+        return json.load(f)
+
+
+def apply_all_woe_mappings(df, mappings):
+    df = df.copy()
+    for col, mapping in mappings.items():
+        df = apply_woe_mapping(df, col, mapping)
+    return df
+
+
+def run_woe_transformation(df, target_col='TARGET'):
+    # Backward compatibility function (will train and apply on same df, causing leakage - for demo/compat only)
+    print("WARNING: run_woe_transformation contains target leakage. Use train_woe_mappings instead.")
+    mappings, iv_df = train_woe_mappings(df, target_col)
+    transformed_df = apply_all_woe_mappings(df, mappings)
+    
+    # Return in original signature format: df, iv_df, bin_stats
+    # Let's map bin_stats to a dummy dictionary for backward compatibility
+    return transformed_df, iv_df, mappings
 
 
 if __name__ == "__main__":
-    print("Loading features_normalized.csv...")
+    print("Running WoE standalone test...")
     df = pd.read_csv(PROCESSED_PATH + "features_normalized.csv")
-    print(f"  Loaded: {df.shape}")
-
-    df, iv_df, bin_stats = run_woe_transformation(df)
-
-    # Save full output with WOE columns added
-    df.to_csv(PROCESSED_PATH + "features_woe.csv", index=False)
-    print(f"\nSaved features_woe.csv — shape: {df.shape}")
-
-    # Save IV summary
+    transformed, iv_df, mappings = run_woe_transformation(df)
+    transformed.to_csv(PROCESSED_PATH + "features_woe.csv", index=False)
     iv_df.to_csv(PROCESSED_PATH + "iv_summary.csv", index=False)
-    print("Saved iv_summary.csv")
-
-    print("\nWOE Transformation complete.")
+    save_woe_mappings(mappings, MODELS_PATH + "woe_mappings.json")
+    print("WoE Transformation complete.")
