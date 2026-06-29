@@ -5,6 +5,7 @@ import numpy as np
 import joblib
 import json
 import os
+from pathlib import Path
 
 app = FastAPI()
 
@@ -15,9 +16,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE      = "C:/Project/My_Anvaya/data/processed/"
-MODEL_DIR = "C:/Project/My_Anvaya/models/"
-SYNTH_DIR = "C:/Project/My_Anvaya/data/synthetic/"
+ROOT = Path(__file__).resolve().parent.parent
+
+BASE = ROOT / "data" / "processed"
+MODEL_DIR = ROOT / "models"
+SYNTH_DIR = ROOT / "data" / "synthetic"
 
 ORG_TYPE_MAP = {
     0:'Business Entity Type 3', 1:'School', 2:'Government', 3:'Religion',
@@ -52,14 +55,14 @@ def _load(path, id_col='SK_ID_CURR'):
         return pd.DataFrame()
 
 # Use combined_predictions (all splits) instead of holdout-only model_predictions
-PRED_DF   = _load(BASE + "combined_predictions.csv")
-SHAP_DF   = _load(BASE + "shap_explanations.csv")
-AGENT_DF  = _load(BASE + "agent_outputs.csv")
-FEAT_DF   = _load(BASE + "features_final.csv")
-MASTER_DF = _load(BASE + "master.csv")
+PRED_DF   = _load(BASE / "combined_predictions.csv")
+SHAP_DF   = _load(BASE / "shap_explanations.csv")
+AGENT_DF  = _load(BASE / "agent_outputs.csv")
+FEAT_DF   = _load(BASE / "features_final.csv")
+MASTER_DF = _load(BASE / "master.csv")
 
 # Load real income arrival data for payment history
-INCOME_DF = _load(SYNTH_DIR + "synthetic_income_arrival.csv", id_col='customer_id')
+INCOME_DF = _load(SYNTH_DIR / "synthetic_income_arrival.csv", id_col='customer_id')
 if not INCOME_DF.empty:
     INCOME_DF = INCOME_DF.rename(columns={'customer_id': 'SK_ID_CURR'})
 
@@ -72,20 +75,20 @@ def _load_model(path):
         print(f"Warning: could not load model {path}: {e}")
         return None
 
-XGB_MODEL        = _load_model(MODEL_DIR + "xgb_model.pkl")
-LGB_MODEL        = _load_model(MODEL_DIR + "lgb_model.pkl")
-CALIBRATED_MODEL = _load_model(MODEL_DIR + "calibrated_model.pkl")
+XGB_MODEL        = _load_model(MODEL_DIR / "xgb_model.pkl")
+LGB_MODEL        = _load_model(MODEL_DIR / "lgb_model.pkl")
+CALIBRATED_MODEL = _load_model(MODEL_DIR / "calibrated_model.pkl")
 
 WOE_MAPPINGS = {}
 try:
-    with open(MODEL_DIR + "woe_mappings.json", "r") as f:
+    with open(MODEL_DIR / "woe_mappings.json", "r") as f:
         WOE_MAPPINGS = json.load(f)
 except Exception as e:
     print(f"Warning: could not load woe_mappings.json: {e}")
 
 POP_BASELINE = {}
 try:
-    bl = pd.read_csv(BASE + "population_baseline.csv")
+    bl = pd.read_csv(BASE / "population_baseline.csv")
     POP_BASELINE = {r['feature']: {'mean': r['population_mean'], 'std': r['population_std']}
                     for _, r in bl.iterrows()}
 except Exception as e:
@@ -93,7 +96,7 @@ except Exception as e:
 
 SELECTED_FEATURES = []
 try:
-    sf = pd.read_csv(BASE + "selected_features.csv")
+    sf = pd.read_csv(BASE / "selected_features.csv")
     SELECTED_FEATURES = sf['selected_features'].tolist()
 except Exception as e:
     print(f"Warning: could not load selected_features.csv: {e}")
