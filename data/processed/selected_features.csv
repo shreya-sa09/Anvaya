@@ -1,0 +1,16 @@
+selected_features
+F3_income_irregularity_WOE
+F7_cash_hoarding_WOE
+F8_stress_velocity_WOE
+F2_savings_drawdown_WOE
+F9_payment_timing_entropy_WOE
+F10_cohort_stress_WOE
+mean_balance_WOE
+std_balance_WOE
+mean_daily_change_WOE
+negative_day_rate_WOE
+F14_ext_source_2_WOE
+F15_ext_source_3_WOE
+F16_days_birth_WOE
+F17_days_employed_WOE
+F18_phone_change_WOE

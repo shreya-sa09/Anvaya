@@ -1,3 +1,19 @@
+# Ignore everything in data
+data/*
+
+# Keep processed data
+!data/processed/
+!data/processed/**
+
+# Keep only the required synthetic file
+!data/synthetic/
+data/synthetic/*
+!data/synthetic/synthetic_income_arrival.csv
+
+# Ignore raw datasets
+data/raw/
+
+# Other ignores
 .venv/
 __pycache__/
 *.pyc
